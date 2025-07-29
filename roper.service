@@ -1,0 +1,19 @@
+[Unit]
+Description=Roper Code Assistant
+After=graphical-session.target
+
+[Service]
+Type=simple
+User=rohan
+Group=rohan
+WorkingDirectory=/home/rohan/Downloads/roper
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/python3 /home/rohan/Downloads/roper/roper.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/tmp/roper.logs
+StandardError=append:/tmp/roper.logs
+
+[Install]
+WantedBy=default.target
