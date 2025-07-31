@@ -9,9 +9,9 @@ def setup_keyboard_shortcut():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     toggle_script = os.path.join(script_dir, "toggle_overlay.py")
     
-    # Command to execute - use the new toggle_roper.py
-    new_toggle_script = os.path.join(script_dir, "toggle_roper.py")
-    command = f"python3 {new_toggle_script}"
+    # Command to execute - use roper CLI toggle
+    roper_cli = os.path.join(script_dir, "roper_cli")
+    command = f"{roper_cli} toggle"
     
     print("Setting up keyboard shortcut: Ctrl+Alt+`")
     print(f"Command: {command}")
@@ -145,20 +145,15 @@ def fallback_instructions(command):
     print("\n5. Save and test the shortcut")
 
 def main():
-    print("Overlay Keyboard Shortcut Setup")
+    print("Roper Keyboard Shortcut Setup")
     print("=" * 40)
     
-    # Check if required files exist
+    # Use roper CLI for shortcuts instead of old overlay files
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    toggle_script = os.path.join(script_dir, "toggle_overlay.py")
-    overlay_script = os.path.join(script_dir, "transparent_overlay_enhanced.py")
+    roper_cli = os.path.join(script_dir, "roper_cli")
     
-    if not os.path.exists(toggle_script):
-        print(f"Error: {toggle_script} not found!")
-        sys.exit(1)
-    
-    if not os.path.exists(overlay_script):
-        print(f"Error: {overlay_script} not found!")
+    if not os.path.exists(roper_cli):
+        print(f"Error: {roper_cli} not found!")
         sys.exit(1)
     
     setup_keyboard_shortcut()
@@ -167,10 +162,11 @@ def main():
     print("SETUP COMPLETE!")
     print("="*50)
     print("You can now use:")
-    print("• Ctrl+Alt+` to toggle the overlay on/off")
-    print(f"• python3 {toggle_script} start/stop/status")
-    print("\nThe overlay will show 'Hello World' in the top-left corner")
-    print("and should be click-through and always on top.")
+    print("• Ctrl+Alt+` to toggle Roper on/off")
+    print("• Alt+X to analyze MCQ questions")
+    print("• Alt+Z to generate code solutions")
+    print("• Alt+C to auto-type code")
+    print("• roper start/stop/status from CLI")
 
 if __name__ == "__main__":
     main()
