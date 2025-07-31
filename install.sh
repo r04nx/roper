@@ -161,9 +161,9 @@ if [ -z "$gemini_api_key" ]; then
     exit 1
 fi
 
-# Basic validation (Gemini API keys start with 'AIza' and are 39 characters total)
-if [[ ! $gemini_api_key =~ ^AIza[A-Za-z0-9_-]{31}$ ]]; then
-    print_warning "API key format seems incorrect (should start with 'AIza' and be 39 characters total)"
+# Basic validation (Gemini API keys start with 'AIza' and are typically 39-40 characters total)
+if [[ ! $gemini_api_key =~ ^AIza[A-Za-z0-9_-]{35,36}$ ]]; then
+    print_warning "API key format seems incorrect (should start with 'AIza' and be 39-40 characters total)"
     print_warning "Provided key: ${gemini_api_key:0:10}... (${#gemini_api_key} characters)"
     
     # In non-interactive mode, fail
