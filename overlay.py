@@ -49,7 +49,7 @@ class Overlay:
             self.current_message = message
         
         # Use a temporary label to measure text size (smaller font)
-        temp_label = tk.Label(self.root, text=self.current_message, font=("Arial", 7, "normal"))
+        temp_label = tk.Label(self.root, text=self.current_message, font=("Arial", 9, "normal"))
         temp_label.update_idletasks()
         text_width = temp_label.winfo_reqwidth()
         text_height = temp_label.winfo_reqheight()
@@ -89,7 +89,7 @@ class Overlay:
         self.text_item = self.canvas.create_text(
             center_x, center_y, 
             text=self.current_message, 
-            font=("Arial", 7, "normal"), 
+            font=("Arial", 8, "normal"), 
             anchor="center", 
             fill='white'
         )

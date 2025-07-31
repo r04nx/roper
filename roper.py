@@ -1,3 +1,21 @@
+def optimize_code_for_typing(code):
+    # Add # at the beginning of every line for safe typing
+    lines = code.split('\n')
+    commented_lines = []
+    
+    for line in lines:
+        # Strip trailing whitespace but keep the content
+        clean_line = line.rstrip()
+        if clean_line:
+            # Add # at the beginning of non-empty lines
+            commented_lines.append(f"# {clean_line}")
+        else:
+            # For empty lines, just add #
+            commented_lines.append("#")
+    
+    # Return commented code for safe typing
+    return '\n'.join(commented_lines)
+
 from pynput import keyboard
 from overlay import Overlay
 from screenshot import take_screenshot
@@ -32,7 +50,33 @@ listener = None
 running = True
 last_code_solution = ""
 
+# Request locking to prevent concurrent requests
+request_lock = threading.Lock()
+is_processing_mcq = False
+is_processing_code = False
+
+# Auto-typing state management
+is_typing = False
+typing_paused = False
+typing_position = 0
+typing_text = ""
+typing_thread = None
+
 def process_mcq():
+    global is_processing_mcq, is_processing_code
+    
+    # Check if any processing is already in progress
+    with request_lock:
+        if is_processing_mcq:
+            logger.info("MCQ processing already in progress, ignoring new request")
+            overlay.show("MCQ analysis in progress...", duration=2)
+            return
+        if is_processing_code:
+            logger.info("Code processing in progress, ignoring MCQ request")
+            overlay.show("Code analysis in progress...", duration=2)
+            return
+        is_processing_mcq = True
+    
     try:
         logger.info("MCQ processing started")
         overlay.show("Taking screenshot...", duration=2)
@@ -45,6 +89,9 @@ def process_mcq():
         answer = ask_gemini(img_path)
         logger.info(f"MCQ answer received: {answer}")
         
+        # Always log the MCQ solution to file
+        logger.info(f"=== MCQ SOLUTION === {answer} === END MCQ SOLUTION ===")
+        
         # Clean up temporary file
         if os.path.exists(img_path):
             os.remove(img_path)
@@ -56,6 +103,10 @@ def process_mcq():
         logger.error(f"Error in process_mcq: {e}")
         overlay.show(f"Error: {str(e)}", duration=3)
         print(f"Error in process_mcq: {e}")
+    finally:
+        # Always release the lock
+        with request_lock:
+            is_processing_mcq = False
 
 def clean_code_response(code):
     """Clean AI response to extract pure code"""
@@ -67,18 +118,26 @@ def clean_code_response(code):
         # Skip markdown code blocks
         if line.strip().startswith('```'):
             continue
-        # Fix common AI formatting issues - replace >> with ||
-        line = line.replace('>>', '||')
-        # Fix null comparisons
-        line = line.replace('s == null || p == null', '(s == null || p == null)')
-        # Fix boolean operations
-        line = line.replace('dp[i][j] || dp[i - 1][j]', 'dp[i][j] || dp[i - 1][j]')
+        # Keep the line as-is without modifying operators
         cleaned_lines.append(line)
     
     return '\n'.join(cleaned_lines).strip()
 
 def process_code():
-    global last_code_solution
+    global last_code_solution, is_processing_mcq, is_processing_code
+    
+    # Check if any processing is already in progress
+    with request_lock:
+        if is_processing_code:
+            logger.info("Code processing already in progress, ignoring new request")
+            overlay.show("Code analysis in progress...", duration=2)
+            return
+        if is_processing_mcq:
+            logger.info("MCQ processing in progress, ignoring code request")
+            overlay.show("MCQ analysis in progress...", duration=2)
+            return
+        is_processing_code = True
+    
     try:
         logger.info("Code processing started")
         overlay.show("Taking screenshot...", duration=2)
@@ -86,11 +145,26 @@ def process_code():
         
         img_path = take_screenshot()
         logger.info(f"Screenshot taken for code: {img_path}")
-        overlay.show("Generating code solution...", duration=7)
+        # Check if using pro model for better messaging
+        from gemini_api import CODE_MODEL
+        if CODE_MODEL == "gemini-2.5-pro":
+            overlay.show("Generating optimal solution with Pro model...", duration=15)
+        else:
+            overlay.show("Generating code solution...", duration=10)
         
         solution = ask_gemini_code(img_path)
-        last_code_solution = clean_code_response(solution)
-        logger.info(f"Code solution generated, length: {len(last_code_solution)} characters")
+        if solution and "error" not in solution.lower() and "fail" not in solution.lower():
+            last_code_solution = clean_code_response(solution)
+            logger.info(f"Code solution generated successfully, length: {len(last_code_solution)} characters")
+            
+            # Always log the CODE solution to file
+            logger.info(f"=== CODE SOLUTION START ===")
+            logger.info(last_code_solution)
+            logger.info(f"=== CODE SOLUTION END ===")
+        else:
+            logger.error(f"Code generation failed: {solution}")
+            overlay.show(f"Code generation failed: {solution[:50]}...", duration=5)
+            return
         
         # Debug: print cleaned code
         print("=== CLEANED CODE ===")
@@ -108,51 +182,86 @@ def process_code():
         logger.error(f"Error in process_code: {e}")
         overlay.show(f"Error: {str(e)}", duration=3)
         print(f"Error in process_code: {e}")
+    finally:
+        # Always release the lock
+        with request_lock:
+            is_processing_code = False
 
-def auto_type_code():
-    global last_code_solution
-    try:
-        logger.info("Auto-type code started")
-        if not last_code_solution:
-            logger.warning("No code solution available for typing")
-            overlay.show("No code to type! Use Alt+Z first", duration=3)
-            return
+def typing_worker():
+    """Worker function that handles the actual typing with pause/resume capability"""
+    global is_typing, typing_paused, typing_position, typing_text
+    
+    from pynput.keyboard import Controller
+    kb = Controller()
+    
+    while is_typing and typing_position < len(typing_text):
+        if typing_paused:
+            time.sleep(0.1)  # Check pause state frequently
+            continue
             
-        overlay.show("Typing code...", duration=2)
-        time.sleep(0.5)
-
-        # Add comments at beginning of each line
-        lines = last_code_solution.split('\n')
-        commented_lines = []
+        char = typing_text[typing_position]
+        if char == '\n':
+            kb.press(keyboard.Key.enter)
+            kb.release(keyboard.Key.enter)
+        else:
+            kb.type(char)
         
-        for line in lines:
-            if line.strip():  # Only add comment to non-empty lines
-                commented_lines.append(f"# {line}")
-            else:
-                commented_lines.append(line)
-        
-        commented_code = '\n'.join(commented_lines)
-        logger.info(f"Starting to type {len(commented_code)} characters")
-        
-        # Type the code
-        from pynput.keyboard import Controller
-        kb = Controller()
-        
-        for char in commented_code:
-            if char == '\n':
-                kb.press(keyboard.Key.enter)
-                kb.release(keyboard.Key.enter)
-            else:
-                kb.type(char)
-            time.sleep(0.02)  # Small delay between characters
-        
-        overlay.show("Code typed successfully!", duration=3)
+        typing_position += 1
+        time.sleep(0.015)  # Typing speed
+    
+    # Typing completed or stopped
+    if typing_position >= len(typing_text):
+        overlay.show("Elite code typed!", duration=3)
         logger.info("Auto-type code completed successfully")
-        
+    
+    is_typing = False
+    typing_paused = False
+
+def toggle_typing():
+    """Toggle typing start/pause/resume"""
+    global is_typing, typing_paused, typing_position, typing_text, typing_thread, last_code_solution
+    
+    try:
+        if not is_typing:
+            # Start new typing session
+            if not last_code_solution:
+                logger.warning("No code solution available for typing")
+                overlay.show("No code to type! Use Alt+Z first", duration=3)
+                return
+            
+            # Prepare text for typing
+            typing_text = optimize_code_for_typing(last_code_solution)
+            typing_position = 0
+            typing_paused = False
+            is_typing = True
+            
+            logger.info(f"Starting to type {len(typing_text)} characters")
+            overlay.show("Starting typing... Alt+C to pause", duration=2)
+            
+            # Start typing in separate thread
+            typing_thread = threading.Thread(target=typing_worker, daemon=True)
+            typing_thread.start()
+            
+        elif typing_paused:
+            # Resume typing
+            typing_paused = False
+            remaining = len(typing_text) - typing_position
+            logger.info(f"Resuming typing from position {typing_position}, {remaining} characters remaining")
+            overlay.show(f"Resumed! {remaining} chars left", duration=2)
+            
+        else:
+            # Pause typing
+            typing_paused = True
+            remaining = len(typing_text) - typing_position
+            logger.info(f"Typing paused at position {typing_position}, {remaining} characters remaining")
+            overlay.show(f"Paused! {remaining} chars left", duration=2)
+            
     except Exception as e:
-        logger.error(f"Error in auto_type_code: {e}")
+        logger.error(f"Error in toggle_typing: {e}")
         overlay.show(f"Error: {str(e)}", duration=3)
-        print(f"Error in auto_type_code: {e}")
+        print(f"Error in toggle_typing: {e}")
+        is_typing = False
+        typing_paused = False
 
 def on_press(key):
     global current_keys
@@ -179,8 +288,8 @@ def on_press(key):
         if key in TYPE_TRIGGER:
             current_keys.add(key)
         if all(k in current_keys for k in TYPE_TRIGGER):
-            print("Auto-type trigger activated...")
-            threading.Thread(target=auto_type_code, daemon=True).start()
+            print("Typing toggle activated...")
+            threading.Thread(target=toggle_typing, daemon=True).start()
             current_keys.clear()
             return
             
@@ -251,7 +360,7 @@ if __name__ == "__main__":
         print("🚀 Roper Code Assistant is running!")
         print("📝 Alt+X: Analyze MCQ questions")
         print("💻 Alt+Z: Generate code solution")
-        print("⌨️ Alt+C: Auto-type code (with comments)")
+        print("⌨️ Alt+C: Auto-type (start/pause/resume)")
         print("🛑 Escape: Quit")
         print("💡 API keys initialized and tested")
         print("📄 Logs are being written to /tmp/roper.logs")

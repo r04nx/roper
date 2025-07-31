@@ -90,41 +90,119 @@ start_roper() {
     fi
 }
 
-# Stop roper
+# Stop roper with enhanced force killing
 stop_roper() {
-    if ! is_running; then
-        print_warning "Roper is not running"
-        return 1
+    print_status "Initiating powerful Roper shutdown..."
+    
+    local stopped_any=false
+    
+    # Method 1: PID-based killing
+    if [ -f "$ROPER_PID_FILE" ]; then
+        local pid=$(cat "$ROPER_PID_FILE")
+        if ps -p "$pid" > /dev/null 2>&1; then
+            print_status "Found Roper process (PID: $pid), terminating..."
+            
+            # Try graceful shutdown first
+            kill -TERM "$pid" 2>/dev/null
+            sleep 2
+            
+            # Try INT signal
+            if ps -p "$pid" > /dev/null 2>&1; then
+                print_warning "TERM failed, trying INT signal..."
+                kill -INT "$pid" 2>/dev/null
+                sleep 2
+            fi
+            
+            # Force kill with KILL signal
+            if ps -p "$pid" > /dev/null 2>&1; then
+                print_warning "INT failed, using KILL signal..."
+                kill -KILL "$pid" 2>/dev/null
+                sleep 1
+            fi
+            
+            if ! ps -p "$pid" > /dev/null 2>&1; then
+                print_success "PID-based termination successful"
+                stopped_any=true
+            fi
+        fi
+        rm -f "$ROPER_PID_FILE"
     fi
-
-    local pid=$(cat "$ROPER_PID_FILE")
-    print_status "Stopping Roper (PID: $pid)..."
     
-    # Try graceful shutdown first
-    kill -TERM "$pid" 2>/dev/null
+    # Method 2: Process name-based killing (nuclear option)
+    print_status "Performing process name-based cleanup..."
     
-    # Wait for graceful shutdown
-    local count=0
-    while [ $count -lt 5 ] && ps -p "$pid" > /dev/null 2>&1; do
-        sleep 1
-        count=$((count + 1))
-    done
-    
-    # Force kill if still running
-    if ps -p "$pid" > /dev/null 2>&1; then
-        print_warning "Graceful shutdown failed, force killing..."
-        kill -KILL "$pid" 2>/dev/null
+    # Kill all python processes with 'roper' in command line
+    local roper_pids=$(pgrep -f "python.*roper\.py" 2>/dev/null)
+    if [ ! -z "$roper_pids" ]; then
+        print_warning "Found additional Roper processes: $roper_pids"
+        for pid in $roper_pids; do
+            print_status "Force killing process $pid..."
+            kill -KILL "$pid" 2>/dev/null
+            stopped_any=true
+        done
         sleep 1
     fi
     
-    # Clean up PID file
-    rm -f "$ROPER_PID_FILE"
+    # Method 3: pkill fallback
+    print_status "Running pkill cleanup..."
+    pkill -f "python.*roper\.py" 2>/dev/null && stopped_any=true
+    pkill -f "roper\.py" 2>/dev/null && stopped_any=true
+    sleep 1
     
-    if ! ps -p "$pid" > /dev/null 2>&1; then
-        print_success "Roper stopped successfully"
+    # Method 4: killall fallback
+    print_status "Running killall cleanup..."
+    killall -9 python3 2>/dev/null | grep -i roper && stopped_any=true
+    
+    # Clean up any remaining files
+    print_status "Cleaning up temporary files..."
+    rm -f "$ROPER_PID_FILE" 2>/dev/null
+    rm -f "/tmp/roper_screenshot.png" 2>/dev/null
+    
+    # Verify complete shutdown
+    local remaining=$(pgrep -f "python.*roper" 2>/dev/null | wc -l)
+    if [ "$remaining" -eq 0 ]; then
+        if [ "$stopped_any" = true ]; then
+            print_success "🔥 Roper FORCEFULLY terminated - all processes eliminated!"
+        else
+            print_warning "Roper was not running"
+        fi
         return 0
     else
-        print_error "Failed to stop Roper"
+        print_error "⚠️  Warning: $remaining Roper processes may still be running"
+        print_error "Run 'roper kill' for nuclear option"
+        return 1
+    fi
+}
+
+# Nuclear option - kill everything related to roper
+kill_roper() {
+    print_error "🚨 NUCLEAR OPTION: Killing ALL Roper-related processes..."
+    
+    # Kill all python processes (nuclear)
+    print_warning "Killing all Python processes containing 'roper'..."
+    pkill -9 -f "roper" 2>/dev/null
+    pkill -9 -f "python.*roper" 2>/dev/null
+    
+    # Kill by exact script name
+    pkill -9 -f "roper.py" 2>/dev/null
+    
+    # Kill any process with roper in the name
+    killall -9 roper 2>/dev/null
+    
+    # Clean up all temp files
+    print_status "Cleaning up ALL temporary files..."
+    rm -f /tmp/roper* 2>/dev/null
+    rm -f /tmp/*roper* 2>/dev/null
+    
+    # Final verification
+    sleep 2
+    local remaining=$(pgrep -f "roper" 2>/dev/null | wc -l)
+    if [ "$remaining" -eq 0 ]; then
+        print_success "💀 NUCLEAR TERMINATION COMPLETE - No survivors!"
+        return 0
+    else
+        print_error "⚠️  $remaining processes survived the nuclear option"
+        print_error "You may need to manually kill PID(s): $(pgrep -f 'roper' 2>/dev/null | tr '\n' ' ')"
         return 1
     fi
 }
@@ -191,7 +269,8 @@ ${CYAN}USAGE:${NC}
 
 ${CYAN}COMMANDS:${NC}
     ${GREEN}start${NC}       Start Roper Code Assistant
-    ${GREEN}stop${NC}        Stop Roper Code Assistant  
+    ${GREEN}stop${NC}        Stop Roper Code Assistant (enhanced force kill)
+    ${RED}kill${NC}        🚨 NUCLEAR OPTION: Force kill ALL Roper processes
     ${GREEN}restart${NC}     Restart Roper Code Assistant
     ${GREEN}toggle${NC}      Toggle Roper (start if stopped, stop if running)
     ${GREEN}status${NC}      Show Roper status and process information
@@ -229,6 +308,9 @@ case "$1" in
     stop)
         stop_roper
         ;;
+    kill)
+        kill_roper
+        ;;
     restart)
         restart_roper
         ;;
@@ -256,4 +338,4 @@ case "$1" in
         show_help
         exit 1
         ;;
-esac
+    esac

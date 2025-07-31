@@ -41,6 +41,8 @@ active_key_index = 0
 last_working_key = None
 key_test_lock = threading.Lock()
 key_status = {}  # Track status of each key
+key_usage_count = {}  # Track usage count per key
+key_last_error = {}  # Track last error per key
 
 # Load model configurations
 MCQ_MODEL = os.getenv('MCQ_MODEL', 'gemini-2.0-flash')
@@ -72,16 +74,19 @@ SYSTEM_PROMPT = (
 )
 
 CODE_PROMPT = (
-    "You are an expert competitive programmer. Analyze the coding problem and provide the MOST OPTIMAL solution. "
-    "Requirements: "
-    "1. Use the most efficient algorithm and data structure "
-    "2. Consider ALL edge cases and constraints "
-    "3. Write code that passes ALL test cases "
-    "4. Use correct syntax with proper operators (|| not >>, && not >>) "
-    "5. NO markdown formatting, NO backticks, NO explanations "
-    "6. Return ONLY clean, executable code with proper indentation "
-    "7. Optimize for both time and space complexity "
-    "8. Handle null/empty inputs and boundary conditions"
+    "You are an ELITE competitive programmer with ACM ICPC World Champion level skills. "
+    "Analyze the coding problem and provide the MOST OPTIMAL, CONCISE solution that would win competitions.\n\n"
+    "CRITICAL REQUIREMENTS:\n"
+    "1. Write ULTRA-OPTIMIZED code using the most efficient algorithms and data structures\n"
+    "2. Handle ALL edge cases, constraints, and boundary conditions flawlessly\n"
+    "3. Code must pass ALL possible test cases including corner cases\n"
+    "4. ZERO comments, ZERO explanations, ZERO markdown, ZERO backticks\n"
+    "5. Return ONLY clean, executable, production-ready code\n"
+    "6. Optimize for BOTH time and space complexity like a champion\n"
+    "7. Write concise, elegant code that elite programmers would admire\n"
+    "8. Use efficient variable names (i, j, n, m, etc.)\n"
+    "9. No unnecessary whitespace or verbose constructs\n\n"
+    "OUTPUT: Pure, optimized, comment-free code that solves the problem perfectly."
 )
 
 def image_to_base64(image_path):
@@ -186,24 +191,39 @@ def make_api_request(data, prompt_type="MCQ"):
             print(f"Using API key {active_key_index + 1} for {prompt_type}...")
             # Use query parameter format for API key
             url_with_key = f"{model_url}?key={last_working_key}"
-            response = requests.post(url_with_key, json=data, headers=headers, timeout=30)
+            # Use much longer timeout for CODE requests with pro model
+            if prompt_type == "CODE" and CODE_MODEL == "gemini-2.5-pro":
+                timeout = 120  # 2 minutes for pro model
+            elif prompt_type == "CODE":
+                timeout = 60
+            else:
+                timeout = 30
+            
+            logger.info(f"Making request to {CODE_MODEL if prompt_type == 'CODE' else MCQ_MODEL} with timeout {timeout}s")
+            response = requests.post(url_with_key, json=data, headers=headers, timeout=timeout)
             
             if response.status_code == 200:
                 try:
-                    result = response.json()['candidates'][0]['content']['parts'][0]['text']
+                    json_response = response.json()
+                    logger.info(f"Full API response keys: {list(json_response.keys())}")
+                    result = json_response['candidates'][0]['content']['parts'][0]['text']
                     print(f"✅ Success with API key {active_key_index + 1}")
                     return result
                 except Exception as e:
+                    logger.error(f"Parse error: {str(e)}, Response: {response.text[:200]}")
                     print(f"⚠️ Parse error: {str(e)}")
                     break
                     
-            elif response.status_code in [429, 403, 400]:
-                print(f"⚠️ API key {active_key_index + 1} error {response.status_code}, switching...")
-                # Mark current key as failed and find next working key
-                with key_test_lock:
-                    key_status[last_working_key] = False
-                    if not find_next_working_key():
-                        return f"All API keys failed. Status: {response.status_code}"
+            elif response.status_code in [429, 403, 400, 503]:
+                error_code = response.status_code
+                error_msg = f"failed with status {error_code}"
+                if error_code == 503:
+                    error_msg = "is overloaded"
+                elif error_code == 429:
+                    error_msg = "has exceeded its quota"
+
+                print(f"⚠️ API key {active_key_index + 1} {error_msg}. Switching to next key.")
+                find_next_working_key()  # Cycle to the next key
                 current_retry += 1
                 continue
                 
@@ -212,10 +232,8 @@ def make_api_request(data, prompt_type="MCQ"):
                 break
                 
         except requests.exceptions.Timeout:
-            print(f"⚠️ API key {active_key_index + 1} timed out, switching...")
-            with key_test_lock:
-                if not find_next_working_key():
-                    return "All API keys timed out"
+            print(f"⚠️ API key {active_key_index + 1} timed out. Switching to next key.")
+            find_next_working_key()  # Cycle to the next key
             current_retry += 1
             continue
             
@@ -226,29 +244,18 @@ def make_api_request(data, prompt_type="MCQ"):
     return "API request failed after all retries"
 
 def find_next_working_key():
-    """Find the next working API key after current one fails"""
+    """Cycles to the next API key in the list."""
     global last_working_key, active_key_index
     
-    start_index = (active_key_index + 1) % len(GEMINI_API_KEYS)
+    with key_test_lock:
+        # Cycle to the next key index
+        active_key_index = (active_key_index + 1) % len(GEMINI_API_KEYS)
+        last_working_key = GEMINI_API_KEYS[active_key_index]
+        logger.info(f"Cycled to next API key in rotation: Key {active_key_index + 1}")
+        print(f"🔄 Cycling to key {active_key_index + 1}...")
     
-    for i in range(len(GEMINI_API_KEYS)):
-        test_index = (start_index + i) % len(GEMINI_API_KEYS)
-        test_key = GEMINI_API_KEYS[test_index]
-        
-        # Skip if we know this key is not working
-        if test_key in key_status and not key_status[test_key]:
-            continue
-            
-        if test_api_key(test_key):
-            last_working_key = test_key
-            active_key_index = test_index
-            key_status[test_key] = True
-            print(f"✅ Switched to working API key {test_index + 1}")
-            return True
-        else:
-            key_status[test_key] = False
-    
-    return False
+    # Always return True to allow the calling loop to continue
+    return True
 
 def ask_gemini(image_path):
     logger.info(f"Processing MCQ request for image: {image_path}")
@@ -282,4 +289,6 @@ def ask_gemini_code(image_path):
     }
     result = make_api_request(data, "CODE")
     logger.info(f"CODE API response length: {len(result) if result else 0} characters")
+    if result and len(result) < 100:  # Log short responses which are likely errors
+        logger.error(f"Short CODE API response (likely error): {result}")
     return result
