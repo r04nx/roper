@@ -138,27 +138,21 @@ echo "3. Click 'Get API Key' -> 'Create API Key'"
 echo "4. Copy the generated API key"
 echo
 
-# Interactive API key setup
-while true; do
-    read -p "Enter your Google Gemini API Key: " -s gemini_api_key
-    echo
-    if [ -z "$gemini_api_key" ]; then
-        print_error "API key cannot be empty"
-        continue
-    fi
-    
-    # Basic validation (Gemini API keys typically start with 'AIza')
-    if [[ $gemini_api_key =~ ^AIza[A-Za-z0-9_-]{35}$ ]]; then
-        break
-    else
-        print_warning "API key format seems incorrect (should start with 'AIza' and be 39 characters)"
-        read -p "Continue anyway? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            break
-        fi
-    fi
-done
+# Check if API key was provided as an argument
+if [ -z "$1" ]; then
+  echo
+  echo -n "Enter your Google Gemini API Key: "
+  read -s gemini_api_key
+  echo
+else
+  gemini_api_key="$1"
+fi
+
+# Basic validation (Gemini API keys typically start with 'AIza')
+if [[ ! $gemini_api_key =~ ^AIza[A-Za-z0-9_-]{35}$ ]]; then
+    print_error "Invalid API key format. Should start with 'AIza' and be 39 characters long."
+    exit 1
+fi
 
 # Create .env file
 cat > .env << EOF
@@ -175,7 +169,6 @@ CODE_MODEL=gemini-2.0-flash
 EOF
 
 print_success "Environment configuration saved"
-
 # Make scripts executable
 print_status "Making scripts executable..."
 chmod +x start_roper.sh

@@ -30,25 +30,62 @@ An AI-powered Multiple Choice Question (MCQ) solver that captures screenshots an
 - 🎯 **Multi-Format Support**: Handles various MCQ formats and question types
 - 🚀 **Background Processing**: Non-blocking analysis with visual feedback
 
-## Setup
+## Installation
 
-### Prerequisites
-The following packages are already installed:
-- `python3-tk` - Tkinter GUI toolkit
-- `python3.12-venv` - Virtual environment support
-- `wmctrl` - Window management tool
+### Quick Install (Recommended)
 
-### Environment Setup
-1. **API Key**: Set up your Google Gemini API key in `.env` file:
-   ```
-   GEMINI_API_KEY=your_api_key_here
-   ```
+**Option 1: One-liner with API key**
+```bash
+curl -fsSL https://raw.githubusercontent.com/r04nx/roper/master/install.sh | bash -s "YOUR_API_KEY_HERE"
+```
 
-2. **Dependencies**: All Python packages are installed in `overlay_env/`:
-   - `pynput` - Keyboard/mouse input monitoring
-   - `requests` - HTTP requests for Gemini API
-   - `Pillow` - Image processing for screenshots
-   - `python-dotenv` - Environment variable loading
+**Option 2: Interactive installation**
+```bash
+curl -fsSL https://raw.githubusercontent.com/r04nx/roper/master/install.sh | bash
+```
+
+**Option 3: Manual installation**
+```bash
+git clone https://github.com/r04nx/roper.git
+cd roper
+chmod +x install.sh
+./install.sh
+```
+
+### Get Your API Key
+1. Visit: [Google AI Studio](https://ai.google.dev/aistudio)
+2. Sign in with your Google account
+3. Click 'Get API Key' → 'Create API Key'
+4. Copy the generated API key
+
+### What Gets Installed
+- **System packages**: `python3-tk`, `python3-venv`, `wmctrl`, `git`
+- **Python environment**: Virtual environment with all dependencies
+- **CLI tool**: `roper` command available globally
+- **Keyboard shortcuts**: System-wide shortcuts configured
+- **Configuration**: `.env` file with your API key
+
+### Uninstallation
+
+**Option 1: Using the uninstall script**
+```bash
+# From the installation directory
+cd ~/roper
+./uninstall.sh
+```
+
+**Option 2: One-liner removal**
+```bash
+curl -fsSL https://raw.githubusercontent.com/r04nx/roper/master/uninstall.sh | bash
+```
+
+**Option 3: Manual uninstall**
+```bash
+roper stop
+rm -rf ~/roper ~/.local/bin/roper
+sed -i '/\.local\/bin.*PATH/d' ~/.bashrc
+rm -f /tmp/roper*
+```
 
 ### Keyboard Shortcuts
 - **Ctrl+Alt+2**: Analyze current screen for MCQ questions
