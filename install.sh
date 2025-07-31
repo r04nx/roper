@@ -140,18 +140,45 @@ echo
 
 # Check if API key was provided as an argument
 if [ -z "$1" ]; then
-  echo
-  echo -n "Enter your Google Gemini API Key: "
-  read -s gemini_api_key
-  echo
+  # Interactive mode - check if we're in a pipe or non-interactive shell
+  if [ -t 0 ]; then
+    echo
+    echo -n "Enter your Google Gemini API Key: "
+    read -s gemini_api_key
+    echo
+  else
+    print_error "No API key provided. Usage: bash install.sh YOUR_API_KEY"
+    print_error "Or run interactively: bash install.sh"
+    exit 1
+  fi
 else
   gemini_api_key="$1"
 fi
 
-# Basic validation (Gemini API keys typically start with 'AIza')
-if [[ ! $gemini_api_key =~ ^AIza[A-Za-z0-9_-]{35}$ ]]; then
-    print_error "Invalid API key format. Should start with 'AIza' and be 39 characters long."
+# Validate API key is not empty
+if [ -z "$gemini_api_key" ]; then
+    print_error "API key cannot be empty"
     exit 1
+fi
+
+# Basic validation (Gemini API keys start with 'AIza' and are 39 characters total)
+if [[ ! $gemini_api_key =~ ^AIza[A-Za-z0-9_-]{31}$ ]]; then
+    print_warning "API key format seems incorrect (should start with 'AIza' and be 39 characters total)"
+    print_warning "Provided key: ${gemini_api_key:0:10}... (${#gemini_api_key} characters)"
+    
+    # In non-interactive mode, fail
+    if [ ! -t 0 ]; then
+        print_error "Invalid API key format in non-interactive mode. Exiting."
+        exit 1
+    fi
+    
+    # In interactive mode, ask to continue
+    read -p "Continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_error "Installation cancelled"
+        exit 1
+    fi
 fi
 
 # Create .env file

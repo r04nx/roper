@@ -3,7 +3,8 @@
 # Roper AI Analysis Tool - Uninstallation Script
 # Completely removes Roper from the system
 
-set -e  # Exit on any error
+# Disable exit on error for interactive prompts
+set +e
 
 # Colors for output
 RED='\033[0;31m'
