@@ -128,63 +128,13 @@ print_success "Python dependencies installed"
 
 # Setup environment file
 print_status "Setting up environment configuration..."
-echo
-echo -e "${YELLOW}API Key Configuration${NC}"
-echo "=============================================="
-echo -e "${CYAN}To get your Gemini API key:${NC}"
-echo "1. Visit: https://ai.google.dev/aistudio"
-echo "2. Sign in with your Google account"
-echo "3. Click 'Get API Key' -> 'Create API Key'"
-echo "4. Copy the generated API key"
-echo
 
-# Check if API key was provided as an argument
-if [ -z "$1" ]; then
-  # Interactive mode - check if we're in a pipe or non-interactive shell
-  if [ -t 0 ]; then
-    echo
-    echo -n "Enter your Google Gemini API Key: "
-    read -s gemini_api_key
-    echo
-  else
-    print_error "No API key provided. Usage: bash install.sh YOUR_API_KEY"
-    print_error "Or run interactively: bash install.sh"
-    exit 1
-  fi
-else
-  gemini_api_key="$1"
-fi
-
-# Validate API key is not empty
-if [ -z "$gemini_api_key" ]; then
-    print_error "API key cannot be empty"
-    exit 1
-fi
-
-# Basic validation (Gemini API keys start with 'AIza' and are typically 39-40 characters total)
-if [[ ! $gemini_api_key =~ ^AIza[A-Za-z0-9_-]{35,36}$ ]]; then
-    print_warning "API key format seems incorrect (should start with 'AIza' and be 39-40 characters total)"
-    print_warning "Provided key: ${gemini_api_key:0:10}... (${#gemini_api_key} characters)"
-    
-    # In non-interactive mode, fail
-    if [ ! -t 0 ]; then
-        print_error "Invalid API key format in non-interactive mode. Exiting."
-        exit 1
-    fi
-    
-    # In interactive mode, ask to continue
-    read -p "Continue anyway? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_error "Installation cancelled"
-        exit 1
-    fi
-fi
-
-# Create .env file
+# Create default .env file without API key
 cat > .env << EOF
 # Gemini API Configuration
-GEMINI_API_KEY=$gemini_api_key
+# Add your API key here: GEMINI_API_KEY=your_api_key_here
+# Get your API key from: https://ai.google.dev/aistudio
+GEMINI_API_KEY=
 
 # Model Configuration (you can change these)
 MCQ_MODEL=gemini-2.0-flash
@@ -193,9 +143,11 @@ CODE_MODEL=gemini-2.0-flash
 # Optional: Additional API keys for rotation
 # GEMINI_API_KEY_2=
 # GEMINI_API_KEY_3=
+# GEMINI_API_KEY_4=
+# GEMINI_API_KEY_5=
 EOF
 
-print_success "Environment configuration saved"
+print_success "Default environment configuration created"
 # Make scripts executable
 print_status "Making scripts executable..."
 chmod +x start_roper.sh
@@ -215,11 +167,9 @@ ln -sf "$INSTALL_DIR/roper_cli" "$CLI_LINK"
 print_success "CLI tool linked to $CLI_LINK"
 
 # Add to PATH if not already there
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-    print_status "Added ~/.local/bin to PATH in ~/.bashrc"
-    export PATH="$HOME/.local/bin:$PATH"
-fi
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+print_status "Updated ~/.local/bin to PATH in ~/.bashrc"
+export PATH="$HOME/.local/bin:$PATH"
 
 # Setup keyboard shortcuts
 print_status "Setting up keyboard shortcuts..."
@@ -254,14 +204,20 @@ echo "  Alt+Z - Generate code solutions"
 echo "  Alt+C - Auto-type code"
 echo "  Escape - Quit (when Roper window is focused)"
 echo
+echo -e "${CYAN}API Key Setup:${NC}"
+echo "  1. Get your API key from: https://ai.google.dev/aistudio"
+echo "  2. Edit the configuration: nano ~/roper/.env"
+echo "  3. Add your key: GEMINI_API_KEY=your_api_key_here"
+echo
 echo -e "${CYAN}Quick Start:${NC}"
-echo "  1. Run: roper start"
-echo "  2. Open any MCQ or coding problem"
-echo "  3. Press Alt+X for MCQ analysis or Alt+Z for code"
+echo "  1. Set up your API key (see above)"
+echo "  2. Run: roper start"
+echo "  3. Open any MCQ or coding problem"
+echo "  4. Press Alt+X for MCQ analysis or Alt+Z for code"
 echo
 echo -e "${YELLOW}Note:${NC} You may need to restart your terminal or run:"
 echo "  source ~/.bashrc"
 echo "to use the 'roper' command from anywhere."
 echo
-print_success "Roper is ready to use!"
+print_success "Roper is installed! Configure your API key to start using it."
 

@@ -34,7 +34,13 @@ for key in [api_key_1, api_key_2, api_key_3, api_key_4, api_key_5]:
         GEMINI_API_KEYS.append(key.strip())
 
 if not GEMINI_API_KEYS:
-    print("⚠️ No valid API keys found! Add GEMINI_API_KEY in .env file")
+    print("\n⚠️  No valid API keys found!")
+    print("📝 To configure your API key:")
+    print("   1. Get your API key from: https://ai.google.dev/aistudio")
+    print("   2. Edit the config file: nano ~/roper/.env")
+    print("   3. Add your key: GEMINI_API_KEY=your_api_key_here")
+    print("   4. Restart Roper: roper restart")
+    print()
 
 # Smart API key management
 active_key_index = 0
