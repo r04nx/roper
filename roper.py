@@ -1,3 +1,5 @@
+
+
 def optimize_code_for_typing(code):
     # Add # at the beginning of every line for safe typing
     lines = code.split('\n')
@@ -16,7 +18,7 @@ def optimize_code_for_typing(code):
     # Return commented code for safe typing
     return '\n'.join(commented_lines)
 
-from pynput import keyboard
+from pynput import keyboard, mouse
 from overlay import Overlay
 from screenshot import take_screenshot
 from gemini_api import ask_gemini, ask_gemini_code, initialize_api_keys
@@ -26,19 +28,20 @@ import os
 import signal
 import time
 import logging
+import tempfile
 from datetime import datetime
 
 # Keyboard shortcuts
-MCQ_TRIGGER = {keyboard.Key.alt_l, keyboard.KeyCode.from_char('x')}
+
 CODE_TRIGGER = {keyboard.Key.alt_l, keyboard.KeyCode.from_char('z')}
-TYPE_TRIGGER = {keyboard.Key.alt_l, keyboard.KeyCode.from_char('c')}
+TYPE_TRIGGER = {keyboard.Key.shift, keyboard.KeyCode.from_char('A')}
 
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/tmp/roper.logs'),
+                logging.FileHandler(os.path.join(tempfile.gettempdir(), 'roper.logs')),
         logging.StreamHandler()
     ]
 )
@@ -47,6 +50,7 @@ logger = logging.getLogger('roper.main')
 current_keys = set()
 overlay = None
 listener = None
+mouse_listener = None
 running = True
 last_code_solution = ""
 
@@ -236,7 +240,7 @@ def toggle_typing():
             is_typing = True
             
             logger.info(f"Starting to type {len(typing_text)} characters")
-            overlay.show("Starting typing... Alt+C to pause", duration=2)
+            overlay.show("Starting typing... Shift+A to pause", duration=2)
             
             # Start typing in separate thread
             typing_thread = threading.Thread(target=typing_worker, daemon=True)
@@ -263,17 +267,15 @@ def toggle_typing():
         is_typing = False
         typing_paused = False
 
+def on_click(x, y, button, pressed):
+    if button == mouse.Button.middle and pressed:
+        print("MCQ trigger activated...")
+        threading.Thread(target=process_mcq, daemon=True).start()
+
 def on_press(key):
     global current_keys
     try:
-        # Check for MCQ trigger
-        if key in MCQ_TRIGGER:
-            current_keys.add(key)
-        if all(k in current_keys for k in MCQ_TRIGGER):
-            print("MCQ trigger activated...")
-            threading.Thread(target=process_mcq, daemon=True).start()
-            current_keys.clear()
-            return
+
             
         # Check for Code trigger
         if key in CODE_TRIGGER:
@@ -309,11 +311,11 @@ def on_release(key):
         print(f"Error in on_release: {e}")
 
 def stop_application():
-    global running, listener, overlay
+    global running, listener, overlay, mouse_listener
     running = False
     
     # Clean up PID file
-    pid_file = "/tmp/roper.pid"
+    pid_file = os.path.join(tempfile.gettempdir(), "roper.pid")
     if os.path.exists(pid_file):
         try:
             os.remove(pid_file)
@@ -323,6 +325,8 @@ def stop_application():
     
     if listener:
         listener.stop()
+    if mouse_listener:
+        mouse_listener.stop()
     if overlay:
         overlay.hide()
         overlay.root.quit()
@@ -341,13 +345,13 @@ if __name__ == "__main__":
         logger.info("Starting Roper Code Assistant")
         
         # Create PID file for CLI tracking
-        pid_file = "/tmp/roper.pid"
+        pid_file = os.path.join(tempfile.gettempdir(), "roper.pid")
         with open(pid_file, 'w') as f:
             f.write(str(os.getpid()))
         logger.info(f"PID file created: {pid_file}")
         
         # Initialize API keys and find working one
-        print("🔑 Initializing API keys...")
+        print("Initializing API keys...")
         initialize_api_keys()
         
         overlay = Overlay()
@@ -356,22 +360,24 @@ if __name__ == "__main__":
         # Show startup acknowledgment overlay
         overlay.show("Roper", duration=1)
         logger.info("Startup overlay shown")
-        
-        print("🚀 Roper Code Assistant is running!")
-        print("📝 Alt+X: Analyze MCQ questions")
-        print("💻 Alt+Z: Generate code solution")
-        print("⌨️ Alt+C: Auto-type (start/pause/resume)")
-        print("🛑 Escape: Quit")
-        print("💡 API keys initialized and tested")
-        print("📄 Logs are being written to /tmp/roper.logs")
+
+        print("Roper Code Assistant is running!")
+        print("Middle Mouse Button: Analyze MCQ questions")
+        print("Alt+Z: Generate code solution")
+        print("Shift+A: Auto-type (start/pause/resume)")
+        print("Escape: Quit")
+        print("API keys initialized and tested")
+        print(f"Logs are being written to {os.path.join(tempfile.gettempdir(), 'roper.logs')}")
         
         # Import here to get model info after initialization
         from gemini_api import MCQ_MODEL, CODE_MODEL
-        print(f"🤖 Models - MCQ: {MCQ_MODEL}, Code: {CODE_MODEL}")
+        print(f"Models - MCQ: {MCQ_MODEL}, Code: {CODE_MODEL}")
         
         listener = keyboard.Listener(on_press=on_press, on_release=on_release)
         listener.start()
-        logger.info("Keyboard listener started, application ready")
+        mouse_listener = mouse.Listener(on_click=on_click)
+        mouse_listener.start()
+        logger.info("Keyboard and mouse listeners started, application ready")
         
         overlay.root.mainloop()
         

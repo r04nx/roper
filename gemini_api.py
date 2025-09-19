@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 import time
 import threading
+import tempfile
 import logging
 from datetime import datetime
 
@@ -14,7 +15,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/tmp/roper.logs'),
+                logging.FileHandler(os.path.join(tempfile.gettempdir(), 'roper.logs')),
         logging.StreamHandler()
     ]
 )
@@ -34,8 +35,8 @@ for key in [api_key_1, api_key_2, api_key_3, api_key_4, api_key_5]:
         GEMINI_API_KEYS.append(key.strip())
 
 if not GEMINI_API_KEYS:
-    print("\n⚠️  No valid API keys found!")
-    print("📝 To configure your API key:")
+    print("\nNo valid API keys found!")
+    print("To configure your API key:")
     print("   1. Get your API key from: https://ai.google.dev/aistudio")
     print("   2. Edit the config file: nano ~/roper/.env")
     print("   3. Add your key: GEMINI_API_KEY=your_api_key_here")
@@ -143,7 +144,7 @@ def find_working_key():
         return False
         
     logger.info(f"Testing {len(GEMINI_API_KEYS)} API keys")
-    print(f"🔍 Testing {len(GEMINI_API_KEYS)} API keys...")
+    print(f"Testing {len(GEMINI_API_KEYS)} API keys...")
     
     for i, key in enumerate(GEMINI_API_KEYS):
         logger.info(f"Testing API key {i+1}/{len(GEMINI_API_KEYS)}")
@@ -154,11 +155,11 @@ def find_working_key():
                 active_key_index = i
                 key_status[key] = True
             logger.info(f"Active API key set: Key {i+1}")
-            print(f"✅ Active API key set: Key {i+1}")
+            print(f"Active API key set: Key {i+1}")
             return True
     
     logger.error("No working API key found!")
-    print("⚠️ No working API key found!")
+    print("No working API key found!")
     return False
 
 def initialize_api_keys():
@@ -213,11 +214,11 @@ def make_api_request(data, prompt_type="MCQ"):
                     json_response = response.json()
                     logger.info(f"Full API response keys: {list(json_response.keys())}")
                     result = json_response['candidates'][0]['content']['parts'][0]['text']
-                    print(f"✅ Success with API key {active_key_index + 1}")
+                    print(f"Success with API key {active_key_index + 1}")
                     return result
                 except Exception as e:
                     logger.error(f"Parse error: {str(e)}, Response: {response.text[:200]}")
-                    print(f"⚠️ Parse error: {str(e)}")
+                    print(f"Parse error: {str(e)}")
                     break
                     
             elif response.status_code in [429, 403, 400, 503]:
@@ -228,23 +229,23 @@ def make_api_request(data, prompt_type="MCQ"):
                 elif error_code == 429:
                     error_msg = "has exceeded its quota"
 
-                print(f"⚠️ API key {active_key_index + 1} {error_msg}. Switching to next key.")
+                print(f"API key {active_key_index + 1} {error_msg}. Switching to next key.")
                 find_next_working_key()  # Cycle to the next key
                 current_retry += 1
                 continue
                 
             else:
-                print(f"⚠️ Unexpected error {response.status_code}: {response.text}")
+                print(f"Unexpected error {response.status_code}: {response.text}")
                 break
                 
         except requests.exceptions.Timeout:
-            print(f"⚠️ API key {active_key_index + 1} timed out. Switching to next key.")
+            print(f"API key {active_key_index + 1} timed out. Switching to next key.")
             find_next_working_key()  # Cycle to the next key
             current_retry += 1
             continue
             
         except Exception as e:
-            print(f"⚠️ Error with API key {active_key_index + 1}: {str(e)}")
+            print(f"Error with API key {active_key_index + 1}: {str(e)}")
             break
     
     return "API request failed after all retries"
@@ -258,7 +259,7 @@ def find_next_working_key():
         active_key_index = (active_key_index + 1) % len(GEMINI_API_KEYS)
         last_working_key = GEMINI_API_KEYS[active_key_index]
         logger.info(f"Cycled to next API key in rotation: Key {active_key_index + 1}")
-        print(f"🔄 Cycling to key {active_key_index + 1}...")
+        print(f"Cycling to key {active_key_index + 1}...")
     
     # Always return True to allow the calling loop to continue
     return True
