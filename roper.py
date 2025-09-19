@@ -30,6 +30,8 @@ import time
 import logging
 import tempfile
 from datetime import datetime
+from dotenv import load_dotenv
+import subprocess
 
 # Keyboard shortcuts
 
@@ -337,6 +339,19 @@ def signal_handler(signum, frame):
     stop_application()
 
 if __name__ == "__main__":
+    # Check for API key
+    load_dotenv()
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        # If not found, launch the GUI to get it
+        subprocess.run(["python", "gui.py"])
+        # Load the .env file again
+        load_dotenv()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            print("API key not provided. Exiting.")
+            sys.exit(1)
+
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

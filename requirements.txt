@@ -1,4 +1,5 @@
 pynput
 Pillow
 python-dotenv
-requests 
+requests
+pyinstaller
