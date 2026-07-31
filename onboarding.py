@@ -7,11 +7,14 @@ import requests
 import logging
 import subprocess
 
+import tempfile
+log_path = os.path.join(tempfile.gettempdir(), 'roper.logs')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/tmp/roper.logs'),
+        logging.FileHandler(log_path),
         logging.StreamHandler()
     ]
 )
@@ -389,11 +392,17 @@ class OnboardingWizard:
             with open(self.env_path, 'w') as f:
                 f.writelines(lines)
                 
-            # Start Roper service using roper_cli
-            cli_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'roper_cli')
-            if os.path.exists(cli_path):
-                subprocess.run([cli_path, "start"], capture_output=True)
-                logger.info("Roper started from onboarding setup")
+            # Start Roper service
+            if os.name == 'nt':
+                bat_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'roper.bat')
+                if os.path.exists(bat_path):
+                    subprocess.run([bat_path, "start"], capture_output=True, shell=True)
+                    logger.info("Roper started on Windows from onboarding setup")
+            else:
+                cli_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'roper_cli')
+                if os.path.exists(cli_path):
+                    subprocess.run([cli_path, "start"], capture_output=True)
+                    logger.info("Roper started from onboarding setup")
                 
             # Show completed screen
             self.show_completed_slide()

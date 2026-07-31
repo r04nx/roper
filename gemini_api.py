@@ -10,12 +10,15 @@ from datetime import datetime
 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 load_dotenv(env_path)
 
+import tempfile
+log_path = os.path.join(tempfile.gettempdir(), 'roper.logs')
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/tmp/roper.logs'),
+        logging.FileHandler(log_path),
         logging.StreamHandler()
     ]
 )

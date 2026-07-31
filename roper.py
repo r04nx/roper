@@ -34,12 +34,15 @@ TYPE_TRIGGER = {keyboard.Key.alt_l, keyboard.KeyCode.from_char('c')}
 SETTINGS_TRIGGER_COMMA = {keyboard.Key.ctrl_l, keyboard.Key.alt_l, keyboard.KeyCode.from_char(',')}
 SETTINGS_TRIGGER_O = {keyboard.Key.ctrl_l, keyboard.Key.alt_l, keyboard.KeyCode.from_char('o')}
 
+import tempfile
+log_path = os.path.join(tempfile.gettempdir(), 'roper.logs')
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/tmp/roper.logs'),
+        logging.FileHandler(log_path),
         logging.StreamHandler()
     ]
 )
@@ -363,7 +366,7 @@ def stop_application():
     running = False
     
     # Clean up PID file
-    pid_file = "/tmp/roper.pid"
+    pid_file = os.path.join(tempfile.gettempdir(), "roper.pid")
     if os.path.exists(pid_file):
         try:
             os.remove(pid_file)
@@ -386,15 +389,19 @@ def signal_handler(signum, frame):
     stop_application()
 
 if __name__ == "__main__":
-    # Set up signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
+    # Set up signal handlers for graceful shutdown (cross-platform)
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        if os.name != 'nt':
+            signal.signal(signal.SIGTERM, signal_handler)
+    except Exception as e:
+        logger.debug(f"Failed to set signal handlers: {e}")
+        
     try:
         logger.info("Starting Roper Code Assistant")
         
         # Create PID file for CLI tracking
-        pid_file = "/tmp/roper.pid"
+        pid_file = os.path.join(tempfile.gettempdir(), "roper.pid")
         with open(pid_file, 'w') as f:
             f.write(str(os.getpid()))
         logger.info(f"PID file created: {pid_file}")
@@ -417,7 +424,7 @@ if __name__ == "__main__":
         print("⚙️  Ctrl+Alt+, / Ctrl+Alt+O: Open Settings Modal")
         print("🛑 Escape: Quit")
         print("💡 API keys initialized and tested")
-        print("📄 Logs are being written to /tmp/roper.logs")
+        print(f"📄 Logs are being written to {log_path}")
         
         # Import here to get model info after initialization
         from gemini_api import MCQ_MODEL, CODE_MODEL
