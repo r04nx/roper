@@ -51,37 +51,120 @@ print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+# Progress Bar & Execution Helper
+show_progress() {
+    local percent=$1
+    local msg=$2
+    local width=35
+    local filled=$(( percent * width / 100 ))
+    local empty=$(( width - filled ))
+    
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar="${bar}█"; done
+    for ((i=0; i<empty; i++)); do bar="${bar}░"; done
+    
+    # Carriage return to overwrite the same line
+    echo -ne "\r${CYAN}[PROGRESS]${NC} [${bar}] ${percent}% | ${msg}"
+    
+    if [ $percent -eq 100 ]; then
+        echo -e "\n"
+    fi
+}
+
+run_with_progress() {
+    local cmd="$1"
+    local start_pct=$2
+    local target_pct=$3
+    local msg="$4"
+    
+    # Run task in background logging to a temporary file
+    eval "$cmd" > /tmp/roper_install_step.log 2>&1 &
+    local pid=$!
+    
+    local current_pct=$start_pct
+    while kill -0 $pid 2>/dev/null; do
+        show_progress $current_pct "$msg"
+        sleep 0.1
+        if [ $current_pct -lt $(( target_pct - 2 )) ]; then
+            current_pct=$(( current_pct + 1 ))
+        fi
+    done
+    
+    wait $pid
+    local status=$?
+    
+    if [ $status -ne 0 ]; then
+        echo -e "\n"
+        print_error "Installation failed at step: $msg"
+        print_error "Error Log (/tmp/roper_install_step.log):"
+        cat /tmp/roper_install_step.log
+        exit 1
+    fi
+    
+    show_progress $target_pct "$msg (Completed)"
+}
+
 # Check if running as root
 if [[ $EUID -eq 0 ]]; then
    print_error "This script should not be run as root"
    exit 1
 fi
 
-# Get installation directory
-INSTALL_DIR="$HOME/roper"
-echo -e "${CYAN}Installation Directory:${NC} $INSTALL_DIR"
-echo
-
-# Check if directory already exists
-if [ -d "$INSTALL_DIR" ]; then
-    print_warning "Directory $INSTALL_DIR already exists"
-    read -p "Do you want to remove it and reinstall? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -rf "$INSTALL_DIR"
-        print_status "Removed existing directory"
-    else
-        print_error "Installation cancelled"
-        exit 1
+# Check if roper files are in the current directory
+if [ ! -f "roper.py" ] || [ ! -f "requirements.txt" ]; then
+    print_warning "Roper files not found in current directory. Setting up ~/roper..."
+    
+    cloned=false
+    
+    # Try Git clone first
+    if command -v git &> /dev/null; then
+        print_status "Trying to clone repository from GitHub..."
+        if [ -d "$HOME/roper" ]; then
+            print_warning "~/roper directory already exists. Updating..."
+            cd "$HOME/roper"
+            if git pull; then
+                cloned=true
+            fi
+        else
+            if git clone https://github.com/r04nx/roper.git "$HOME/roper"; then
+                cd "$HOME/roper"
+                cloned=true
+            fi
+        fi
     fi
+    
+    # Fallback to tarball approach if git clone failed or wasn't available
+    if [ "$cloned" = false ]; then
+        print_warning "Git clone failed or unavailable. Falling back to tarball download..."
+        mkdir -p "$HOME/roper"
+        
+        # Download from Filebin CDN
+        TARBALL_URL="https://filebin.net/roperbin/roper.tar.gz"
+        print_status "Downloading tarball from $TARBALL_URL..."
+        
+        if command -v curl &> /dev/null; then
+            curl -fsSL "$TARBALL_URL" -o "$HOME/roper.tar.gz"
+        elif command -v wget &> /dev/null; then
+            wget -qO "$HOME/roper.tar.gz" "$TARBALL_URL"
+        else
+            print_error "Neither curl nor wget found. Cannot download tarball."
+            exit 1
+        fi
+        
+        print_status "Extracting files to ~/roper..."
+        tar -xzf "$HOME/roper.tar.gz" -C "$HOME/roper"
+        rm "$HOME/roper.tar.gz"
+        cd "$HOME/roper"
+    fi
+    
+    # Re-run installation from the prepared directory
+    exec ./install.sh "$@"
 fi
 
-# Clone the repository
-print_status "Cloning Roper repository..."
-REPO_URL="https://github.com/r04nx/roper.git"
-git clone "$REPO_URL" "$INSTALL_DIR"
-cd "$INSTALL_DIR" || exit 1
-print_success "Repository cloned successfully"
+INSTALL_DIR="$(pwd)"
+echo -e "${CYAN}Installation Directory:${NC} $INSTALL_DIR"
+echo
+print_success "Found Roper files in directory: $INSTALL_DIR"
 
 # Check Python version
 print_status "Checking Python version..."
@@ -93,99 +176,75 @@ if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1
 fi
 print_success "Python version: $PYTHON_VERSION"
 
-# Install system dependencies
-print_status "Installing system dependencies..."
-echo "You may be prompted for your sudo password..."
-
-# Update package list
-sudo apt-get update -qq
-
-# Install required packages
+# Check for missing dependencies
 PACKAGES=("python3-tk" "python3-venv" "python3-pip" "wmctrl" "git")
+missing_package=false
 for package in "${PACKAGES[@]}"; do
-    if ! dpkg -l | grep -qw "$package"; then
-        print_status "Installing $package..."
-        sudo apt-get install -y "$package"
-    else
-        print_success "$package already installed"
+    if ! dpkg -l | grep -qw "$package" 2>/dev/null; then
+        missing_package=true
+        break
     fi
 done
 
-# Setup Python virtual environment
-print_status "Creating Python virtual environment..."
-python3 -m venv overlay_env
-source overlay_env/bin/activate
-print_success "Virtual environment created"
-
-# Upgrade pip
-print_status "Upgrading pip..."
-pip install --upgrade pip
-
-# Install Python dependencies
-print_status "Installing Python dependencies..."
-pip install -r requirements.txt
-print_success "Python dependencies installed"
-
-# Setup environment file
-print_status "Setting up environment configuration..."
-
-# Create default .env file without API key
-cat > .env << EOF
-# Gemini API Configuration
-# Add your API key here: GEMINI_API_KEY=your_api_key_here
-# Get your API key from: https://ai.google.dev/aistudio
-GEMINI_API_KEY=
-
-# Model Configuration (you can change these)
-MCQ_MODEL=gemini-2.0-flash
-CODE_MODEL=gemini-2.0-flash
-
-# Optional: Additional API keys for rotation
-# GEMINI_API_KEY_2=
-# GEMINI_API_KEY_3=
-# GEMINI_API_KEY_4=
-# GEMINI_API_KEY_5=
-EOF
-
-print_success "Default environment configuration created"
-# Make scripts executable
-print_status "Making scripts executable..."
-chmod +x start_roper.sh
-chmod +x roper_cli
-print_success "Scripts made executable"
-
-# Setup CLI tool in PATH
-print_status "Setting up CLI tool..."
-CLI_LINK="$HOME/.local/bin/roper"
-mkdir -p "$HOME/.local/bin"
-
-# Update the roper_cli script with correct path
-sed -i "s|ROPER_DIR=\"/home/rohan/Downloads/roper\"|ROPER_DIR=\"$INSTALL_DIR\"|g" roper_cli
-
-# Create symlink
-ln -sf "$INSTALL_DIR/roper_cli" "$CLI_LINK"
-print_success "CLI tool linked to $CLI_LINK"
-
-# Add to PATH if not already there
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-print_status "Updated ~/.local/bin to PATH in ~/.bashrc"
-export PATH="$HOME/.local/bin:$PATH"
-
-# Setup keyboard shortcuts
-print_status "Setting up keyboard shortcuts..."
-echo "This will configure system shortcuts for Roper..."
-python3 setup_shortcut.py
-
-# Test the installation
-print_status "Testing installation..."
-if python3 -c "import pynput, requests, PIL; print('All dependencies imported successfully')" 2>/dev/null; then
-    print_success "Dependency test passed"
+if [ "$missing_package" = true ]; then
+    print_status "Installing missing system dependencies..."
+    echo "You may be prompted for your sudo password..."
+    
+    # Update package list
+    sudo apt-get update -qq
+    
+    # Install required packages
+    for package in "${PACKAGES[@]}"; do
+        if ! dpkg -l | grep -qw "$package" 2>/dev/null; then
+            print_status "Installing $package..."
+            sudo apt-get install -y "$package"
+        else
+            print_success "$package already installed"
+        fi
+    done
 else
-    print_error "Dependency test failed"
+    print_success "All system dependencies are already installed!"
 fi
 
-# Deactivate virtual environment
-deactivate
+# Setup Python virtual environment
+run_with_progress "python3 -m venv --copies overlay_env" 10 35 "Creating Python virtual environment"
+
+# Upgrade pip
+run_with_progress "./overlay_env/bin/pip install --upgrade pip" 35 45 "Upgrading package manager (pip)"
+
+# Install Python dependencies
+run_with_progress "./overlay_env/bin/pip install -r requirements.txt" 45 75 "Installing Python dependencies"
+
+# Setup environment file
+show_progress 75 "Setting up environment configuration"
+if [ ! -f .env ]; then
+    cat > .env << EOF
+# Gemini API Configuration
+GEMINI_API_KEY=
+MCQ_MODEL=gemini-2.0-flash
+CODE_MODEL=gemini-2.0-flash
+EOF
+fi
+show_progress 80 "Default environment configuration created"
+
+# Make scripts executable and link CLI
+CLI_LINK="$HOME/.local/bin/roper"
+run_with_progress "chmod +x start_roper.sh roper_cli && mkdir -p \"\$HOME/.local/bin\" && sed -i \"s#^ROPER_DIR=.*#ROPER_DIR=\\\"\$INSTALL_DIR\\\"#g\" roper_cli && ln -sf \"\$INSTALL_DIR/roper_cli\" \"\$CLI_LINK\"" 80 90 "Configuring system CLI tools"
+
+# Setup keyboard shortcuts
+run_with_progress "python3 setup_shortcut.py" 90 95 "Setting up system hotkey shortcuts"
+
+# Test the installation
+run_with_progress "./overlay_env/bin/python -c 'import pynput, requests, PIL'" 95 100 "Running final validation checks"
+
+# Launch Onboarding Wizard if DISPLAY is set
+if [ -n "$DISPLAY" ]; then
+    print_status "Launching Onboarding Setup Wizard..."
+    ./overlay_env/bin/python onboarding.py
+else
+    print_warning "No graphical display detected. Skipping setup wizard."
+    print_warning "You can configure Roper later by running: nano ~/roper/.env"
+fi
 
 echo
 echo -e "${GREEN}===============================================${NC}"
@@ -198,22 +257,21 @@ echo "  roper stop       - Stop Roper"
 echo "  roper status     - Check status"
 echo "  roper help       - Show help"
 echo
-echo -e "${CYAN}Keyboard Shortcuts:${NC}"
-echo "  Alt+X - Analyze MCQ questions"
-echo "  Alt+Z - Generate code solutions"
-echo "  Alt+C - Auto-type code"
-echo "  Escape - Quit (when Roper window is focused)"
+echo -e "${CYAN}Keyboard & Mouse Shortcuts:${NC}"
+echo "  Middle Mouse Click - Solve MCQ from screen screenshot"
+echo "  Alt+Z              - Generate code solution from screenshot"
+echo "  Alt+C              - Auto-type generated code safely (commented)"
+echo "  Ctrl+Alt+, / O     - Open settings configuration modal"
+echo "  Escape             - Quit (when focused on terminal running Roper)"
 echo
 echo -e "${CYAN}API Key Setup:${NC}"
-echo "  1. Get your API key from: https://ai.google.dev/aistudio"
-echo "  2. Edit the configuration: nano ~/roper/.env"
-echo "  3. Add your key: GEMINI_API_KEY=your_api_key_here"
+echo "  If you skipped the onboarding wizard, you can configure your key by:"
+echo "  1. Editing the config file: nano $INSTALL_DIR/.env"
+echo "  2. Adding your API key: GEMINI_API_KEY=your_api_key"
 echo
 echo -e "${CYAN}Quick Start:${NC}"
-echo "  1. Set up your API key (see above)"
-echo "  2. Run: roper start"
-echo "  3. Open any MCQ or coding problem"
-echo "  4. Press Alt+X for MCQ analysis or Alt+Z for code"
+echo "  1. Run: roper start"
+echo "  2. Press Ctrl+Alt+, to verify/update your credentials"
 echo
 echo -e "${YELLOW}Note:${NC} You may need to restart your terminal or run:"
 echo "  source ~/.bashrc"

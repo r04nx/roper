@@ -3,7 +3,7 @@
 # Roper CLI Tool
 # Manage Roper Code Assistant from anywhere
 
-ROPER_DIR="/home/rohan/Downloads/roper"
+ROPER_DIR="/media/rohan/2faea206-dce9-4d98-a6b6-e2e418d797c8/home/rohan/Documents/SEM 7/roper"
 ROPER_PID_FILE="/tmp/roper.pid"
 ROPER_LOG_FILE="/tmp/roper.logs"
 
@@ -66,7 +66,7 @@ start_roper() {
 
     # Start roper in background
     cd "$ROPER_DIR"
-    nohup python3 roper.py > /dev/null 2>&1 &
+    nohup ./overlay_env/bin/python roper.py > /dev/null 2>&1 &
     local pid=$!
     
     # Save PID
@@ -77,9 +77,10 @@ start_roper() {
     
     if is_running; then
         print_success "Roper started successfully (PID: $pid)"
-        print_status "📝 Alt+X: Analyze MCQ questions"
-        print_status "💻 Alt+Z: Generate code solution"
+        print_status "🖱️  Middle Mouse Button: Analyze MCQ questions"
+        print_status "💻 Alt+Z: Generate code solution (10min timeout)"
         print_status "⌨️  Alt+C: Auto-type code (with comments)"
+        print_status "⚙️  Ctrl+Alt+, / Ctrl+Alt+O: Open Settings Modal"
         print_status "🛑 Escape: Quit"
         print_status "📄 Logs: $ROPER_LOG_FILE"
         return 0
@@ -278,10 +279,11 @@ ${CYAN}COMMANDS:${NC}
     ${GREEN}logs -f${NC}     Follow logs in real-time
     ${GREEN}help${NC}        Show this help message
 
-${CYAN}KEYBOARD SHORTCUTS (when running):${NC}
-    📝 Alt+X     Analyze MCQ questions
-    💻 Alt+Z     Generate code solution  
+${CYAN}INPUT SHORTCUTS (when running):${NC}
+    🖱️  Middle Mouse Button: Analyze MCQ questions
+    💻 Alt+Z     Generate code solution (10min timeout)
     ⌨️  Alt+C     Auto-type code (with comments)
+    ⚙️  Ctrl+Alt+,/O Open Settings Modal
     🛑 Escape    Quit Roper
 
 ${CYAN}FILES:${NC}

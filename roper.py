@@ -16,7 +16,7 @@ def optimize_code_for_typing(code):
     # Return commented code for safe typing
     return '\n'.join(commented_lines)
 
-from pynput import keyboard
+from pynput import keyboard, mouse
 from overlay import Overlay
 from screenshot import take_screenshot
 from gemini_api import ask_gemini, ask_gemini_code, initialize_api_keys
@@ -29,9 +29,10 @@ import logging
 from datetime import datetime
 
 # Keyboard shortcuts
-MCQ_TRIGGER = {keyboard.Key.alt_l, keyboard.KeyCode.from_char('x')}
 CODE_TRIGGER = {keyboard.Key.alt_l, keyboard.KeyCode.from_char('z')}
 TYPE_TRIGGER = {keyboard.Key.alt_l, keyboard.KeyCode.from_char('c')}
+SETTINGS_TRIGGER_COMMA = {keyboard.Key.ctrl_l, keyboard.Key.alt_l, keyboard.KeyCode.from_char(',')}
+SETTINGS_TRIGGER_O = {keyboard.Key.ctrl_l, keyboard.Key.alt_l, keyboard.KeyCode.from_char('o')}
 
 # Setup logging
 logging.basicConfig(
@@ -46,7 +47,8 @@ logger = logging.getLogger('roper.main')
 
 current_keys = set()
 overlay = None
-listener = None
+keyboard_listener = None
+mouse_listener = None
 running = True
 last_code_solution = ""
 
@@ -189,7 +191,7 @@ def process_code():
 
 def typing_worker():
     """Worker function that handles the actual typing with pause/resume capability"""
-    global is_typing, typing_paused, typing_position, typing_text
+    global is_typing, typing_paused, typing_position, typing_text, last_code_solution
     
     from pynput.keyboard import Controller
     kb = Controller()
@@ -211,14 +213,18 @@ def typing_worker():
     
     # Typing completed or stopped
     if typing_position >= len(typing_text):
-        overlay.show("Elite code typed!", duration=3)
-        logger.info("Auto-type code completed successfully")
+        overlay.show("Elite code typed! Solution cleared.", duration=3)
+        logger.info("Auto-type code completed successfully - solution cleared")
+        # Clear the solution to prevent re-typing
+        last_code_solution = ""
+        typing_text = ""
+        typing_position = 0
     
     is_typing = False
     typing_paused = False
 
 def toggle_typing():
-    """Toggle typing start/pause/resume"""
+    """Toggle typing start/pause/resume/stop"""
     global is_typing, typing_paused, typing_position, typing_text, typing_thread, last_code_solution
     
     try:
@@ -236,45 +242,60 @@ def toggle_typing():
             is_typing = True
             
             logger.info(f"Starting to type {len(typing_text)} characters")
-            overlay.show("Starting typing... Alt+C to pause", duration=2)
+            overlay.show("Typing started! Alt+C: pause/resume/stop", duration=2)
             
             # Start typing in separate thread
             typing_thread = threading.Thread(target=typing_worker, daemon=True)
             typing_thread.start()
             
         elif typing_paused:
-            # Resume typing
-            typing_paused = False
+            # Check if user has been paused for a while - if so, offer to stop
             remaining = len(typing_text) - typing_position
-            logger.info(f"Resuming typing from position {typing_position}, {remaining} characters remaining")
-            overlay.show(f"Resumed! {remaining} chars left", duration=2)
+            if remaining > 0:
+                logger.info(f"Resuming typing from position {typing_position}, {remaining} characters remaining")
+                overlay.show(f"Resumed! {remaining} chars left", duration=2)
+                typing_paused = False
+            else:
+                # Edge case - shouldn't happen but handle it
+                stop_typing_and_clear()
             
         else:
-            # Pause typing
+            # Currently typing - pause it
             typing_paused = True
             remaining = len(typing_text) - typing_position
             logger.info(f"Typing paused at position {typing_position}, {remaining} characters remaining")
-            overlay.show(f"Paused! {remaining} chars left", duration=2)
+            overlay.show(f"Paused! Alt+C again to resume ({remaining} left)", duration=3)
             
     except Exception as e:
         logger.error(f"Error in toggle_typing: {e}")
         overlay.show(f"Error: {str(e)}", duration=3)
         print(f"Error in toggle_typing: {e}")
-        is_typing = False
-        typing_paused = False
+        stop_typing_and_clear()
+
+def stop_typing_and_clear():
+    """Stop typing and clear the solution"""
+    global is_typing, typing_paused, typing_position, typing_text, last_code_solution
+    
+    is_typing = False
+    typing_paused = False
+    typing_position = 0
+    typing_text = ""
+    last_code_solution = ""
+    
+    logger.info("Typing stopped and solution cleared")
+    overlay.show("Typing stopped, solution cleared!", duration=2)
+
+def open_settings_modal():
+    from settings_modal import SettingsModal
+    def on_settings_saved(new_model):
+        if overlay:
+            overlay.show(f"Settings saved! Model: {new_model}", duration=3)
+    logger.info("Opening settings modal")
+    SettingsModal(overlay.root, on_save_callback=on_settings_saved)
 
 def on_press(key):
     global current_keys
     try:
-        # Check for MCQ trigger
-        if key in MCQ_TRIGGER:
-            current_keys.add(key)
-        if all(k in current_keys for k in MCQ_TRIGGER):
-            print("MCQ trigger activated...")
-            threading.Thread(target=process_mcq, daemon=True).start()
-            current_keys.clear()
-            return
-            
         # Check for Code trigger
         if key in CODE_TRIGGER:
             current_keys.add(key)
@@ -293,8 +314,37 @@ def on_press(key):
             current_keys.clear()
             return
             
+        # Check for Settings triggers
+        if key in SETTINGS_TRIGGER_COMMA:
+            current_keys.add(key)
+        if all(k in current_keys for k in SETTINGS_TRIGGER_COMMA):
+            print("Settings trigger (Ctrl+Alt+,) activated...")
+            if overlay and overlay.root:
+                overlay.root.after(0, open_settings_modal)
+            current_keys.clear()
+            return
+            
+        if key in SETTINGS_TRIGGER_O:
+            current_keys.add(key)
+        if all(k in current_keys for k in SETTINGS_TRIGGER_O):
+            print("Settings trigger (Ctrl+Alt+O) activated...")
+            if overlay and overlay.root:
+                overlay.root.after(0, open_settings_modal)
+            current_keys.clear()
+            return
+            
     except Exception as e:
         print(f"Error in on_press: {e}")
+
+def on_click(x, y, button, pressed):
+    """Handle mouse click events"""
+    try:
+        # Only respond to middle mouse button press (not release)
+        if button == mouse.Button.middle and pressed:
+            print("Middle mouse button clicked - MCQ trigger activated...")
+            threading.Thread(target=process_mcq, daemon=True).start()
+    except Exception as e:
+        print(f"Error in on_click: {e}")
 
 def on_release(key):
     global current_keys
@@ -309,7 +359,7 @@ def on_release(key):
         print(f"Error in on_release: {e}")
 
 def stop_application():
-    global running, listener, overlay
+    global running, keyboard_listener, mouse_listener, overlay
     running = False
     
     # Clean up PID file
@@ -321,8 +371,11 @@ def stop_application():
         except Exception as e:
             logger.warning(f"Failed to remove PID file: {e}")
     
-    if listener:
-        listener.stop()
+    # Stop both listeners
+    if keyboard_listener:
+        keyboard_listener.stop()
+    if mouse_listener:
+        mouse_listener.stop()
     if overlay:
         overlay.hide()
         overlay.root.quit()
@@ -358,9 +411,10 @@ if __name__ == "__main__":
         logger.info("Startup overlay shown")
         
         print("🚀 Roper Code Assistant is running!")
-        print("📝 Alt+X: Analyze MCQ questions")
-        print("💻 Alt+Z: Generate code solution")
-        print("⌨️ Alt+C: Auto-type (start/pause/resume)")
+        print("🖱️  Middle Mouse Button: Analyze MCQ questions")
+        print("💻 Alt+Z: Generate code solution (10min timeout)")
+        print("⌨️  Alt+C: Auto-type (start/pause/resume)")
+        print("⚙️  Ctrl+Alt+, / Ctrl+Alt+O: Open Settings Modal")
         print("🛑 Escape: Quit")
         print("💡 API keys initialized and tested")
         print("📄 Logs are being written to /tmp/roper.logs")
@@ -369,9 +423,14 @@ if __name__ == "__main__":
         from gemini_api import MCQ_MODEL, CODE_MODEL
         print(f"🤖 Models - MCQ: {MCQ_MODEL}, Code: {CODE_MODEL}")
         
-        listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-        listener.start()
-        logger.info("Keyboard listener started, application ready")
+        # Start both keyboard and mouse listeners
+        keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+        mouse_listener = mouse.Listener(on_click=on_click)
+        
+        keyboard_listener.start()
+        mouse_listener.start()
+        
+        logger.info("Keyboard and mouse listeners started, application ready")
         
         overlay.root.mainloop()
         

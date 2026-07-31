@@ -7,7 +7,8 @@ import threading
 import logging
 from datetime import datetime
 
-load_dotenv()
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(env_path)
 
 # Setup logging
 logging.basicConfig(
@@ -92,6 +93,7 @@ CODE_PROMPT = (
     "7. Write concise, elegant code that elite programmers would admire\n"
     "8. Use efficient variable names (i, j, n, m, etc.)\n"
     "9. No unnecessary whitespace or verbose constructs\n\n"
+    "10. No explaination, no comments, just pure code solution output"
     "OUTPUT: Pure, optimized, comment-free code that solves the problem perfectly."
 )
 
@@ -101,11 +103,11 @@ def image_to_base64(image_path):
 
 def get_next_api_key():
     """Get next API key in rotation"""
-    global current_key_index
+    global active_key_index
     if not GEMINI_API_KEYS:
         return None
-    key = GEMINI_API_KEYS[current_key_index]
-    current_key_index = (current_key_index + 1) % len(GEMINI_API_KEYS)
+    key = GEMINI_API_KEYS[active_key_index]
+    active_key_index = (active_key_index + 1) % len(GEMINI_API_KEYS)
     return key
 
 def test_api_key(api_key):
@@ -157,9 +159,12 @@ def find_working_key():
             print(f"✅ Active API key set: Key {i+1}")
             return True
     
-    logger.error("No working API key found!")
-    print("⚠️ No working API key found!")
-    return False
+    logger.error("No working API key found! Falling back to the first configured key.")
+    print("⚠️ No working API key found! Falling back to Key 1.")
+    with key_test_lock:
+        last_working_key = GEMINI_API_KEYS[0]
+        active_key_index = 0
+    return True
 
 def initialize_api_keys():
     """Initialize API keys and find working one"""
@@ -179,13 +184,19 @@ def make_api_request(data, prompt_type="MCQ"):
     
     # Select appropriate model URL based on prompt type
     if prompt_type == "MCQ":
-        model_url = MODEL_URLS.get(MCQ_MODEL, MODEL_URLS['gemini-2.0-flash'])
-        logger.info(f"Using MCQ model: {MCQ_MODEL}")
+        model_name = MCQ_MODEL
     else:
-        model_url = MODEL_URLS.get(CODE_MODEL, MODEL_URLS['gemini-2.0-flash'])
-        logger.info(f"Using CODE model: {CODE_MODEL}")
+        model_name = CODE_MODEL
+
+    if model_name in MODEL_URLS:
+        model_url = MODEL_URLS[model_name]
+    else:
+        model_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+
+    logger.info(f"Using {prompt_type} model: {model_name} at URL: {model_url}")
     
-    max_retries = len(GEMINI_API_KEYS)
+    # Allow multiple attempts per key for transient errors
+    max_retries = len(GEMINI_API_KEYS) * 2  # Try each key twice
     current_retry = 0
     
     while current_retry < max_retries:
@@ -199,14 +210,20 @@ def make_api_request(data, prompt_type="MCQ"):
             url_with_key = f"{model_url}?key={last_working_key}"
             # Use much longer timeout for CODE requests with pro model
             if prompt_type == "CODE" and CODE_MODEL == "gemini-2.5-pro":
-                timeout = 120  # 2 minutes for pro model
+                timeout = 600  # 10 minutes for pro model
             elif prompt_type == "CODE":
-                timeout = 60
+                timeout = 600  # 10 minutes for code models
             else:
                 timeout = 30
             
             logger.info(f"Making request to {CODE_MODEL if prompt_type == 'CODE' else MCQ_MODEL} with timeout {timeout}s")
+            logger.debug(f"Request URL: {model_url}")
+            logger.debug(f"Request data size: {len(str(data))} characters")
+            
+            start_time = time.time()
             response = requests.post(url_with_key, json=data, headers=headers, timeout=timeout)
+            response_time = time.time() - start_time
+            logger.info(f"Response received in {response_time:.2f} seconds")
             
             if response.status_code == 200:
                 try:
@@ -237,7 +254,8 @@ def make_api_request(data, prompt_type="MCQ"):
                 print(f"⚠️ Unexpected error {response.status_code}: {response.text}")
                 break
                 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as timeout_error:
+            logger.error(f"Timeout error with API key {active_key_index + 1}: {timeout_error}")
             print(f"⚠️ API key {active_key_index + 1} timed out. Switching to next key.")
             find_next_working_key()  # Cycle to the next key
             current_retry += 1
@@ -298,3 +316,57 @@ def ask_gemini_code(image_path):
     if result and len(result) < 100:  # Log short responses which are likely errors
         logger.error(f"Short CODE API response (likely error): {result}")
     return result
+
+def reload_configuration():
+    """Reload API keys and models from .env dynamically"""
+    global GEMINI_API_KEYS, MCQ_MODEL, CODE_MODEL, active_key_index, last_working_key
+    # Force reload of .env file using absolute path
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    load_dotenv(env_path, override=True)
+    
+    # Reload API keys
+    GEMINI_API_KEYS = []
+    api_key_1 = os.getenv('GEMINI_API_KEY')
+    api_key_2 = os.getenv('GEMINI_API_KEY_2')
+    api_key_3 = os.getenv('GEMINI_API_KEY_3')
+    api_key_4 = os.getenv('GEMINI_API_KEY_4')
+    api_key_5 = os.getenv('GEMINI_API_KEY_5')
+    
+    for key in [api_key_1, api_key_2, api_key_3, api_key_4, api_key_5]:
+        if key and key.strip():
+            GEMINI_API_KEYS.append(key.strip())
+            
+    MCQ_MODEL = os.getenv('MCQ_MODEL', 'gemini-2.0-flash')
+    CODE_MODEL = os.getenv('CODE_MODEL', 'gemini-2.0-flash')
+    
+    active_key_index = 0
+    last_working_key = None
+    initialize_api_keys()
+    logger.info("Configuration reloaded successfully")
+
+def fetch_available_models(api_key):
+    """Fetch available models from Gemini API using the provided key"""
+    if not api_key or not api_key.strip():
+        return []
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key.strip()}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            models_list = []
+            for m in data.get("models", []):
+                # Filter models that support content generation
+                if "generateContent" in m.get("supportedGenerationMethods", []):
+                    name = m.get("name", "")
+                    if name.startswith("models/"):
+                        name = name[len("models/"):]
+                    models_list.append(name)
+            # Sort the models list alphabetically so it's consistent
+            return sorted(models_list)
+        else:
+            logger.error(f"Failed to fetch models: HTTP {response.status_code} - {response.text}")
+            return []
+    except Exception as e:
+        logger.error(f"Error fetching models from API: {e}")
+        return []
