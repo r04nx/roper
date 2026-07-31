@@ -11,6 +11,13 @@ class Overlay:
         self.root.attributes('-alpha', 0.0)  # Initially fully transparent
         self.root.configure(bg='black')
         
+        # Prevent taking focus on Linux/X11
+        if os.name != 'nt':
+            try:
+                self.root.attributes('-type', 'notification')
+            except:
+                pass
+                
         # Create canvas for custom rounded rectangle
         self.canvas = Canvas(
             self.root, 
@@ -33,16 +40,31 @@ class Overlay:
         self.root.after(100, self.setup_click_through)
 
     def setup_click_through(self):
-        """Make the overlay click-through when not showing messages"""
-        try:
-            window_id = self.root.winfo_id()
-            # Set window properties for better behavior
-            subprocess.run([
-                'wmctrl', '-i', '-r', str(window_id),
-                '-b', 'add,skip_taskbar,skip_pager'
-            ], check=False, capture_output=True)
-        except Exception as e:
-            pass  # Silently fail if wmctrl is not available
+        """Make the overlay click-through and prevent focus activation"""
+        if os.name == 'nt':
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+                if hwnd:
+                    # GWL_EXSTYLE is -20
+                    style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
+                    # 0x08000000: WS_EX_NOACTIVATE (prevents focus shift)
+                    # 0x00000020: WS_EX_TRANSPARENT (enables click-through)
+                    # 0x00080000: WS_EX_LAYERED
+                    style |= 0x08000000 | 0x00000020 | 0x00080000
+                    ctypes.windll.user32.SetWindowLongW(hwnd, -20, style)
+            except Exception as e:
+                pass
+        else:
+            try:
+                window_id = self.root.winfo_id()
+                # Set window properties for better behavior on Linux
+                subprocess.run([
+                    'wmctrl', '-i', '-r', str(window_id),
+                    '-b', 'add,skip_taskbar,skip_pager'
+                ], check=False, capture_output=True)
+            except Exception as e:
+                pass
 
     def show(self, message=None, duration=3):
         if message:
